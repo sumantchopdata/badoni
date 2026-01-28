@@ -1,0 +1,4 @@
+student_id,answer_1,answer_2,answer_3,answer_4,answer_5,answer_6,answer_7,answer_8,answer_9,answer_10,answer_11,answer_12,answer_13,answer_14,answer_15,answer_16,answer_17,answer_18,answer_19,answer_20,answer_21,answer_22,answer_23,answer_24
+S001,agree,strongly agree,B,neutral,agree,A,disagree,agree,C,agree,agree,C,neutral,neutral,B,strongly agree,agree,C,agree,neutral,B,agree,strongly agree,C
+S002,disagree,neutral,B,agree,agree,A,agree,agree,C,agree,neutral,C,agree,agree,B,agree,agree,C,strongly agree,agree,B,neutral,agree,C
+S003,neutral,neutral,D,disagree,neutral,C,neutral,neutral,D,agree,neutral,D,neutral,neutral,A,agree,neutral,B,neutral,neutral,C,disagree,neutral,A

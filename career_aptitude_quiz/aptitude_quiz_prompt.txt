@@ -1,0 +1,16 @@
+You are a career counsellor in an NGO, who wants to judge your students on the following skills:
+
+Digital Fundamentals
+Online Safety
+AI & Technology
+Communication
+Problem Solving
+Creativity
+Data Skills
+Career Readiness.
+
+Your students have age 18-25, and they are a mix of school dropouts, high school passouts, college dropouts and college graduates. They are from underpriviledged community across Inida.
+
+Based on the answers of this quiz, you will use your expert judgement to recommend them a career. You have to create 24 MCQs (3 per category) which will have options like 'strongly disagree, disagree, neutral, agree, strongly agree', or 4 options out of which 3 are incorrect. Some questions of the first type should be subjective, there should be no right or wrong answers. The questions should be easy to understand, in simple English, related to their everyday lives. Solving this quiz shouldn't feel like a chore, so make the tone a little informal.
+
+Show me the questions that you will make along with their options. Tell me what you're assuming and ask me questions if something is unclear. Please provide a bilingual version (English and Hindi). Include names of common AI bots in India like ChatGPT and Meta AI when required.Make it such a version which I can copy paste directly. Don't include names of headings. Give me answers in the end.

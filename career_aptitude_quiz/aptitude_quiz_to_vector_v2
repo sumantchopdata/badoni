@@ -1,0 +1,268 @@
+#%%
+from typing import List, Dict, Tuple
+from collections import defaultdict
+import pandas as pd
+import os
+
+# -----------------------------
+# Configuration
+# -----------------------------
+
+# The MCQ key file is ALWAYS 1-based per your requirement.
+KEY_IS_ONE_BASED = True
+
+# File paths (edit if needed)
+RESPONSES_CSV_PATH = "student_responses.csv"
+MCQ_KEY_PATH = "mcq_answer_key.txt"
+
+# Fixed category order => output column order
+CATEGORIES = [
+    "Digital Fundamentals",
+    "Online Safety",
+    "AI & Technology",
+    "Communication",
+    "Problem Solving",
+    "Creativity",
+    "Data Skills",
+    "Career Readiness",
+]
+
+# Likert mapping (case-insensitive)
+LIKERT_MAP = {
+    "strongly disagree": 1,
+    "disagree": 2,
+    "neutral": 3,
+    "agree": 4,
+    "strongly agree": 5,
+}
+
+# -----------------------------
+# Quiz Structure (24 questions)
+# For each category: 2 Likert + 1 MCQ
+# -----------------------------
+
+
+def build_quiz_questions() -> List[dict]:
+    """
+    Returns the 24-question config:
+    For each category in order, 2 Likert + 1 MCQ.
+    If you change this structure/order, expected MCQ positions change accordingly.
+    """
+    questions = []
+    for cat in CATEGORIES:
+        questions.append({"category": cat, "type": "likert"})
+        questions.append({"category": cat, "type": "likert"})
+        questions.append({"category": cat, "type": "mcq"})
+    return questions 
+
+def _expected_mcq_indices_one_based(questions: List[dict]) -> List[int]:
+    """
+    Compute the list of 1-based question numbers that are MCQs,
+    derived from the current 'questions' config dynamically.
+    """
+    mcq_1_based = []
+    for idx, q in enumerate(questions):
+        if q["type"].lower() == "mcq":
+            mcq_1_based.append(idx + 1)  # convert to 1-based numbering for human-readable checks
+    return mcq_1_based
+
+
+# -----------------------------
+# Scoring Helpers
+# -----------------------------
+
+def normalize_likert(answer: str) -> int:
+    """
+    Convert a Likert string to numeric 1..5. Unknown -> 3 (neutral).
+    Accepts case-insensitive text or "1"-"5".
+    """
+    if answer is None:
+        return 3
+    s = str(answer).strip().lower()
+    if s.isdigit() and s in {"1","2","3","4","5"}:
+        return int(s)
+    return LIKERT_MAP.get(s, 3)
+
+def read_mcq_key(path: str) -> Dict[int, str]:
+    """
+    Reads mcq_answer_key.txt lines like '3: B' (ALWAYS 1-based per your requirement),
+    validates that the provided keys match the expected MCQ positions based on the quiz config,
+    and returns a dict with **0-based** indices internally -> option letter.
+
+    Raises a detailed error if any expected MCQ question numbers are missing.
+    """
+    # 1) Load raw lines into a 1-based dict
+    provided_1_based = {}
+    with open(path, "r", encoding="utf-8") as f:
+        for raw in f:
+            line = raw.strip()
+            if not line:
+                continue
+            if ":" not in line:
+                raise ValueError(f"Invalid line in MCQ key: '{line}'. Expected 'index: LETTER'.")
+            left, right = line.split(":", 1)
+            idx_str = left.strip()
+            opt = right.strip().upper()
+            if not idx_str.isdigit() or opt not in {"A", "B", "C", "D"}:
+                raise ValueError(f"Invalid MCQ entry: '{line}'. Must look like '12: C'.")
+            qnum_1_based = int(idx_str)
+            provided_1_based[qnum_1_based] = opt
+
+    # 2) Determine expected MCQ positions from the quiz configuration
+    questions = build_quiz_questions()
+    expected_1_based = _expected_mcq_indices_one_based(questions)
+
+    # 3) Check missing / extra
+    missing = [q for q in expected_1_based if q not in provided_1_based]
+    extra = [q for q in provided_1_based.keys() if q not in expected_1_based]
+
+    if missing or extra:
+        msg_parts = []
+        if missing:
+            msg_parts.append(f"Missing MCQ entries for question numbers (1-based): {missing}")
+        if extra:
+            msg_parts.append(f"Unexpected MCQ entries for question numbers (1-based): {extra}")
+        expected_str = ", ".join(map(str, expected_1_based))
+        msg_parts.append(f"Expected MCQ question numbers (1-based) based on your quiz config: [{expected_str}]")
+        msg_parts.append("If you changed the quiz order or types, update mcq_answer_key.txt accordingly.")
+        raise ValueError("\n".join(msg_parts))
+
+    # 4) Convert to 0-based internal mapping
+    mcq_key_0_based = { (qnum - 1): opt for qnum, opt in provided_1_based.items() }
+    return mcq_key_0_based
+
+
+def compute_category_maxima(questions: List[Dict]) -> Dict[str, Tuple[int, int]]:
+    """
+    For each category, compute (max_likert_sum, max_mcq_sum).
+    """
+    cat_likert_counts = defaultdict(int)
+    cat_mcq_counts = defaultdict(int)
+    for q in questions:
+        cat = q["category"]
+        if q["type"].lower() == "likert":
+            cat_likert_counts[cat] += 1
+        elif q["type"].lower() == "mcq":
+            cat_mcq_counts[cat] += 1
+        else:
+            raise ValueError(f"Unknown question type: {q['type']}")
+    return {cat: (cat_likert_counts[cat]*5, cat_mcq_counts[cat]*1) for cat in CATEGORIES}
+
+def validate_inputs(questions: List[Dict], answers: List[str], mcq_key: Dict[int, str]) -> None:
+    if len(questions) != len(answers):
+        raise ValueError(f"Expected {len(questions)} answers, got {len(answers)}.")
+    for idx, q in enumerate(questions):
+        if q["type"].lower() == "mcq" and idx not in mcq_key:
+            raise ValueError(f"Missing MCQ key for question index {idx} (remember: key file is 1-based).")
+
+def score_student(questions: List[Dict], answers: List[str], mcq_key: Dict[int, str]):
+    """
+    Returns an 8-element vector of proficiencies (0..1) in the CATEGORIES order.
+    """
+    validate_inputs(questions, answers, mcq_key)
+
+    cat_likert_sum = defaultdict(int)
+    cat_mcq_sum = defaultdict(int)
+
+    for idx, (q, ans) in enumerate(zip(questions, answers)):
+        cat = q["category"]
+        qtype = q["type"].lower()
+        if qtype == "likert":
+            cat_likert_sum[cat] += normalize_likert(ans)
+        elif qtype == "mcq":
+            correct = mcq_key[idx].strip().upper()
+            given = str(ans).strip().upper()
+            cat_mcq_sum[cat] += 1 if given == correct else 0
+        else:
+            raise ValueError(f"Unknown question type at index {idx}: {qtype}")
+
+    maxima = compute_category_maxima(questions)
+    vec = []
+    for cat in CATEGORIES:
+        max_likert, max_mcq = maxima[cat]
+        total_max = max_likert + max_mcq
+        if total_max == 0:
+            vec.append(0.0)
+        else:
+            total_score = cat_likert_sum[cat] + cat_mcq_sum[cat]
+            total_score = max(0, min(total_score, total_max))
+            vec.append(total_score / total_max)
+    return vec
+
+# -----------------------------
+# Batch: read CSV and compute
+# -----------------------------
+
+def load_student_responses(path: str, num_questions: int) -> pd.DataFrame:
+    """
+    Loads student_responses.csv with columns:
+      student_id, answer_1, answer_2, ..., answer_N
+    Returns a DataFrame with those columns. Validates presence and order.
+    """
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"Responses CSV not found at '{path}'.")
+    df = pd.read_csv(path)
+    required_cols = ["student_id"] + [f"answer_{i+1}" for i in range(num_questions)]
+    missing = [c for c in required_cols if c not in df.columns]
+    if missing:
+        raise ValueError(f"Missing columns in responses CSV: {missing}")
+    return df[required_cols].copy()
+
+def batch_score_from_files(
+    responses_csv_path: str = RESPONSES_CSV_PATH,
+    mcq_key_path: str = MCQ_KEY_PATH,
+    export_path: str = None  # e.g., "proficiency_scores.csv" or ".xlsx"
+) -> pd.DataFrame:
+    """
+    Reads student_responses.csv and mcq_answer_key.txt, returns a DataFrame with:
+      student_id + 8 category columns (0..1)
+    No recommendations and no vector column.
+    Optionally exports to CSV/XLSX if export_path is provided.
+    """
+    questions = build_quiz_questions()           # length 24
+    num_questions = len(questions)
+    mcq_key = read_mcq_key(mcq_key_path)
+
+    # Load responses
+    df = load_student_responses(responses_csv_path, num_questions)
+
+    # Score each student
+    rows = []
+    for _, row in df.iterrows():
+        student_id = row["student_id"]
+        answers = [row[f"answer_{i+1}"] for i in range(num_questions)]
+        vec = score_student(questions, answers, mcq_key)
+
+        out_row = {"student_id": student_id}
+        for cat, val in zip(CATEGORIES, vec):
+            out_row[cat] = float(f"{val:.6f}")
+        rows.append(out_row)
+
+    out_df = pd.DataFrame(rows)
+
+    # Optional export
+    if export_path:
+        if export_path.lower().endswith(".csv"):
+            out_df.to_csv(export_path, index=False)
+        elif export_path.lower().endswith(".xlsx"):
+            out_df.to_excel(export_path, index=False, engine="openpyxl")
+        else:
+            raise ValueError("export_path must end with .csv or .xlsx")
+
+    return out_df
+
+# -----------------------------
+# CLI entry
+# -----------------------------
+
+if __name__ == "__main__":
+    # Example run:
+    results = batch_score_from_files(
+        responses_csv_path=RESPONSES_CSV_PATH,
+        mcq_key_path=MCQ_KEY_PATH,
+        export_path="proficiency_scores.csv"   # change to .xlsx or set None
+    )
+
+    # Preview
+    with pd.option_context('display.max_columns', None, 'display.width', 140):
+        print(results.head())
